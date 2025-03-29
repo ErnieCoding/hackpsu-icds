@@ -2,6 +2,8 @@ import open3d as o3d
 import numpy as np
 import plotly.graph_objects as go
 from IPython.display import Javascript, display
+import os
+import matplotlib.pyplot as plt
 
 # Function to load and combine point clouds
 def combine_point_clouds(folder_name, file_count):
@@ -24,58 +26,26 @@ def combine_point_clouds(folder_name, file_count):
     
     return combined
 
-# Combine all the point clouds
-ceilingtheater = combine_point_clouds("ceilingtheater", 3)
-theater = combine_point_clouds("theater", 7)
-main = combine_point_clouds("main", 13)
-secondary = combine_point_clouds("secondary", 11)
-
-# Combine all into one point cloud
-CIE = main + secondary + theater + ceilingtheater
-o3d.io.write_point_cloud("CIE.pcd", CIE, write_ascii=True)
-
-pcd = o3d.io.read_point_cloud('CIE.pcd')
-print("Original point cloud:", pcd)
-downpcd = pcd.voxel_down_sample(voxel_size=0.3)
-
-try:
-    from IPython import get_ipython
-    def resize_colab_cell():
-        display(Javascript('google.colab.output.setIframeHeight(0, true, {maxHeight: 5000})'))
+def draw_point_cloud(pcd):
+    pts = np.asarray(pcd.points)
+    clr = None
     
-    ip = get_ipython()
-    if ip is not None:
-        ip.events.register('pre_run_cell', resize_colab_cell)
-except:
-    pass
+    if pcd.has_colors():
+        clr = np.asarray(pcd.colors)
+    elif pcd.has_normals():
+        clr = (0.5, 0.5, 0.5) + np.asarray(pcd.normals) * 0.5
+    else:
+        pcd.paint_uniform_color((1.0, 0.0, 0.0))
+        clr = np.asarray(pcd.colors)
 
-def draw(geometries):
-    graph_obj = []
-
-    for gm in geometries:
-        geometry_type = gm.get_geometry_type()
-        pts = np.asarray(gm.points)
-        clr = None
-        
-        if gm.has_colors():
-            clr = np.asarray(gm.colors)
-        elif gm.has_normals():
-            clr = (0.5, 0.5, 0.5) + np.asarray(gm.normals) * 0.5
-        else:
-            gm.paint_uniform_color((1.0, 0.0, 0.0))
-            clr = np.asarray(gm.colors)
-
-        sc = go.Scatter3d(
+    fig = go.Figure(
+        data=[go.Scatter3d(
             x=pts[:,0], 
             y=pts[:,1], 
             z=pts[:,2], 
             mode='markers', 
             marker=dict(size=10, color=clr)
-        )
-        graph_obj.append(sc)
-
-    fig = go.Figure(
-        data=graph_obj,
+        )],
         layout=dict(
             scene=dict(
                 xaxis=dict(visible=False),
@@ -85,7 +55,8 @@ def draw(geometries):
             ),
             autosize=False,
             width=1500,
-            height=1000
+            height=1000,
+            title="Point Cloud Visualization"
         )
     )
     
@@ -94,8 +65,67 @@ def draw(geometries):
             up=dict(x=0, y=0, z=1),
             center=dict(x=0, y=0, z=0),
             eye=dict(x=0, y=0, z=.75)
-        ),
-        title="Point Cloud of CIE"
+        )
     )
     fig.show()
-draw([downpcd])
+
+def display_image(img):
+    # Convert Open3D image to numpy array
+    img_np = np.asarray(img)
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add image trace
+    fig.add_trace(go.Image(z=img_np))
+    
+    # Update layout
+    fig.update_layout(
+        title="Image Visualization",
+        autosize=False,
+        width=1000,
+        height=800,
+    )
+    
+    fig.show()
+
+def main(CIE_data, pcd_or_img, data):
+    if CIE_data:
+        ceilingtheater = combine_point_clouds("ceilingtheater", 3)
+        theater = combine_point_clouds("theater", 7)
+        main = combine_point_clouds("main", 13)
+        secondary = combine_point_clouds("secondary", 11)
+
+        # Combine all into one point cloud
+        CIE = main + secondary + theater + ceilingtheater
+        o3d.io.write_point_cloud("CIE.pcd", CIE, write_ascii=True)
+
+        pcd = o3d.io.read_point_cloud('CIE.pcd')
+        print("Original point cloud:", pcd)
+        downpcd = pcd.voxel_down_sample(voxel_size=0.3)
+        draw_point_cloud(downpcd)
+    
+    else:
+        if pcd_or_img:
+            if data.lower().endswith(('.pcd')):
+                pcd = o3d.io.read_point_cloud(data)
+                print("Original point cloud:", pcd)
+                downpcd = pcd.voxel_down_sample(voxel_size=0.3)
+                draw_point_cloud(downpcd)
+            else:
+                print("Error: Unsupported point cloud format. Please provide a .pcd file")
+        else:
+            if data.lower().endswith(('.png', '.jpg', '.jpeg')):
+                img = o3d.io.read_image(data)
+                print("Original image dimensions:", np.asarray(img).shape)
+                display_image(img)
+            else:
+                print("Error: Unsupported image format. Please provide .png, .jpg, or .jpeg")
+main(True, True, "CIE.pcd")
+# Example usage:
+# For point clouds:
+# main(True, True, "CIE.pcd")  # For CIE data
+# main(False, True, "your_point_cloud.pcd")  # For other point clouds
+
+# For images:
+# main(False, False, "your_image.jpg")
