@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-import './styles/fileupload.css';
+import './styles/fileuploader.css';
 
 
 function FileUploader(){
@@ -44,7 +44,7 @@ function FileUploader(){
         <div className="UploadSection">
             <h1>File Upload</h1>
             <input type="file" onChange={handleFileChange}/>
-            <button>Upload File</button>
+            <button>Process File</button>
             {uploadStatus && <p>{uploadStatus}</p>}
         </div>
     );
