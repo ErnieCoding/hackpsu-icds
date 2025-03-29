@@ -1,2 +1,5 @@
 venv/
 *.pcd
+*.jpg
+*.jpeg
+*.png

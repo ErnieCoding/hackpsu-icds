@@ -1,9 +1,6 @@
 import open3d as o3d
 import numpy as np
 import plotly.graph_objects as go
-from IPython.display import Javascript, display
-import os
-import matplotlib.pyplot as plt
 
 # Function to load and combine point clouds
 def combine_point_clouds(folder_name, file_count):
@@ -101,6 +98,7 @@ def main(CIE_data, pcd_or_img, data):
         o3d.io.write_point_cloud("CIE.pcd", CIE, write_ascii=True)
 
         pcd = o3d.io.read_point_cloud('CIE.pcd')
+        
         print("Original point cloud:", pcd)
         downpcd = pcd.voxel_down_sample(voxel_size=0.3)
         draw_point_cloud(downpcd)
@@ -121,11 +119,17 @@ def main(CIE_data, pcd_or_img, data):
                 display_image(img)
             else:
                 print("Error: Unsupported image format. Please provide .png, .jpg, or .jpeg")
-main(True, True, "CIE.pcd")
+ 
 # Example usage:
 # For point clouds:
 # main(True, True, "CIE.pcd")  # For CIE data
 # main(False, True, "your_point_cloud.pcd")  # For other point clouds
-
+# all data folder or images should be in the hackpsu-icds directory
 # For images:
 # main(False, False, "your_image.jpg")
+main(True, True, "CIE.pcd")
+"""
+TODO: run through vision model to figure out what items there are
+
+
+"""
