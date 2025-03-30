@@ -1,4 +1,14 @@
-CDS Challenge: Point Cloud Object Detection
+# Running the code:
+## Detect
+Change dir to icds_detection and run the following code: 
+ **(param values to be changed)**
+
+`python scripts/cie_detection.py --input_dir data/cie --output_dir output --eps 0.1 --min_points 50 --voxel_size 0.04`
+## Visualize
+`python scripts/visualize_standalone.py    --pcd_path data/cie_processed/CIE.pcd    --result_path output/standalone_detection/detection_results.txt`
+
+
+# CDS Challenge: Point Cloud Object Detection
 
 This project implements an object detection system for the Center for Immersive Experiences (CIE) point cloud data, as part of the ICDS Challenge.
 
@@ -7,6 +17,16 @@ This project implements an object detection system for the Center for Immersive 
 We've developed a solution to detect objects such as chairs, tables, monitors, projection screens, and other equipment in the CIE space using 3D point cloud data. Our approach leverages the OpenPCDet framework, a powerful open-source library for LiDAR-based 3D object detection.
 
 ![Point Cloud Visualization](https://immersive.psu.edu/spaces/)
+
+## Color codes
+- Chair: Red
+- Table: Green
+- Monitor: Blue
+- Projection Screen: Yellow
+- Projector: Magenta
+- TV: Cyan
+- Computer: Olive
+- Misc/Other: Gray
 
 ## Key Features
 
