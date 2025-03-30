@@ -8,6 +8,16 @@ We've developed a solution to detect objects such as chairs, tables, monitors, p
 
 ![Point Cloud Visualization](https://immersive.psu.edu/spaces/)
 
+## Color codes
+- Chair: Red
+- Table: Green
+- Monitor: Blue
+- Projection Screen: Yellow
+- Projector: Magenta
+- TV: Cyan
+- Computer: Olive
+- Misc/Other: Gray
+
 ## Key Features
 
 - **Data Processing**: Handles the merging and preprocessing of multiple point cloud files for the CIE space
