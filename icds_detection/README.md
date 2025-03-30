@@ -1,4 +1,14 @@
-CDS Challenge: Point Cloud Object Detection
+# Running the code:
+## Detect
+Change dir to icds_detection and run the following code: 
+ **(param values to be changed)**
+
+`python scripts/cie_detection.py --input_dir data/cie --output_dir output --eps 0.1 --min_points 50 --voxel_size 0.04`
+## Visualize
+`python scripts/visualize_standalone.py    --pcd_path data/cie_processed/CIE.pcd    --result_path output/standalone_detection/detection_results.txt`
+
+
+# CDS Challenge: Point Cloud Object Detection
 
 This project implements an object detection system for the Center for Immersive Experiences (CIE) point cloud data, as part of the ICDS Challenge.
 
