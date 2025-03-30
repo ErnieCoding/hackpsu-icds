@@ -1,25 +1,24 @@
+#!/usr/bin/env python
+"""
+Improved CIE Point Cloud Object Detection
+
+This script:
+1. Loads and preprocesses the point cloud data
+2. Segments the point cloud to identify potential objects
+3. Classifies each segment based on geometric features
+4. Visualizes and saves the results
+"""
+
 import os
+import sys
+import argparse
 import numpy as np
 import open3d as o3d
-import torch
-import argparse
+import matplotlib.pyplot as plt
+from sklearn import cluster
 from tqdm import tqdm
 import time
-import yaml
-import sklearn.cluster as cluster
-from sklearn.decomposition import PCA
 
-# Import from OpenPCDet if available
-try:
-    from pcdet.config import cfg, cfg_from_yaml_file
-    from pcdet.models import build_network, load_data_to_gpu
-    from pcdet.utils import common_utils
-    OPENPCDET_AVAILABLE = True
-except ImportError:
-    print("Warning: OpenPCDet not available. Running in standalone mode.")
-    OPENPCDET_AVAILABLE = False
-
-# Import the merging script
 from merge_colab_script import merge_pcd_files
 
 def preprocess_point_cloud(pcd, voxel_size=0.05):
@@ -54,9 +53,9 @@ def preprocess_point_cloud(pcd, voxel_size=0.05):
     
     return pcd_clean
 
-def segment_objects(pcd, eps=0.15, min_points=100):
+def segment_objects(pcd, eps=0.1, min_points=50):
     """
-    Segment the point cloud into potential objects using DBSCAN clustering.
+    Simplified segmentation that only uses DBSCAN clustering.
     
     Args:
         pcd: Open3D PointCloud object
@@ -67,92 +66,242 @@ def segment_objects(pcd, eps=0.15, min_points=100):
         list: List of point cloud segments (potential objects)
     """
     print("Segmenting objects...")
+    print(f"Input point cloud has {len(pcd.points)} points")
     
     # Convert to numpy array for DBSCAN
     points = np.asarray(pcd.points)
+    print(f"Running DBSCAN clustering with eps={eps}, min_points={min_points}...")
     
     # Run DBSCAN clustering
-    db = cluster.DBSCAN(eps=eps, min_samples=min_points, n_jobs=-1).fit(points)
+    db = cluster.DBSCAN(eps=eps, min_samples=min_points).fit(points)
     labels = db.labels_
     
     # Number of clusters (excluding noise points with label -1)
-    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    print(f"Found {n_clusters} potential objects")
+    unique_labels = set(labels)
+    n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+    print(f"DBSCAN found {n_clusters} potential clusters")
+    print(f"Unique labels: {unique_labels}")
     
     # Create a list of point cloud segments
     segments = []
-    for i in range(n_clusters):
-        cluster_indices = np.where(labels == i)[0]
-        if len(cluster_indices) < min_points:  # Skip very small clusters
+    
+    # Process each DBSCAN cluster
+    for label in unique_labels:
+        if label == -1:  # Skip noise
+            continue
+            
+        cluster_indices = np.where(labels == label)[0]
+        print(f"Cluster {label}: {len(cluster_indices)} points")
+        
+        if len(cluster_indices) < min_points:
+            print(f"  Skipping cluster {label}: too few points")
             continue
             
         # Create a new point cloud for this segment
         segment = o3d.geometry.PointCloud()
-        segment.points = o3d.utility.Vector3dVector(np.asarray(pcd.points)[cluster_indices])
+        segment.points = o3d.utility.Vector3dVector(points[cluster_indices])
         if pcd.has_colors():
-            segment.colors = o3d.utility.Vector3dVector(np.asarray(pcd.colors)[cluster_indices])
-        if pcd.has_normals():
-            segment.normals = o3d.utility.Vector3dVector(np.asarray(pcd.normals)[cluster_indices])
+            colors = np.asarray(pcd.colors)
+            segment.colors = o3d.utility.Vector3dVector(colors[cluster_indices])
         
+        # Get the axis-aligned bounding box
+        bbox = segment.get_axis_aligned_bounding_box()
+        min_bound = bbox.min_bound
+        max_bound = bbox.max_bound
+        
+        # Calculate dimensions
+        width = max_bound[0] - min_bound[0]   # X-axis
+        length = max_bound[1] - min_bound[1]  # Y-axis
+        height = max_bound[2] - min_bound[2]  # Z-axis
+        volume = width * length * height
+        
+        print(f"  Dimensions: {width:.2f}m x {length:.2f}m x {height:.2f}m, Volume: {volume:.2f}m³")
+        
+        # Filter out clusters that are too large or too small
+        MAX_DIMENSION = 5.0  # meters (intentionally larger for debugging)
+        MAX_VOLUME = 10.0     # cubic meters (intentionally larger for debugging)
+        MIN_VOLUME = 0.001    # cubic meters (smaller for debugging)
+        
+        if width > MAX_DIMENSION or length > MAX_DIMENSION or height > MAX_DIMENSION:
+            print(f"  Skipping cluster {label}: dimension too large")
+            continue
+            
+        if volume > MAX_VOLUME:
+            print(f"  Skipping cluster {label}: volume too large")
+            continue
+            
+        if volume < MIN_VOLUME:
+            print(f"  Skipping cluster {label}: volume too small")
+            continue
+        
+        print(f"  Adding cluster {label} to segments")
         segments.append(segment)
     
+    print(f"Final number of segments: {len(segments)}")
     return segments
 
 def classify_objects(segments):
     """
-    Classify segments into object categories based on simple geometric features.
+    Classify segments into object categories based on geometric features.
     
     Args:
-        segments: List of Open3D PointCloud objects
+        segments: List of Open3D PointCloud objects (segments)
         
     Returns:
         list: List of (segment, class_name, confidence) tuples
     """
     print("Classifying objects...")
     
-    results = []
+    # Constants for classification (all in meters)
+    # 1 inch = 0.0254 meters
+    # Chairs: ~20" x 20" x 41-53" (0.51m x 0.51m x 1.04-1.35m)
+    CHAIR_WIDTH_MIN, CHAIR_WIDTH_MAX = 0.4, 0.7  # Allow some variation
+    CHAIR_LENGTH_MIN, CHAIR_LENGTH_MAX = 0.4, 0.7
+    CHAIR_HEIGHT_MIN, CHAIR_HEIGHT_MAX = 0.9, 1.5
     
-    # Define object classes with their expected geometric properties
-    class_properties = {
-        'Chair': {'height_range': (0.4, 1.2), 'volume_range': (0.05, 0.5), 'aspect_ratio_range': (0.5, 2.0)},
-        'Table': {'height_range': (0.5, 1.1), 'volume_range': (0.3, 5.0), 'aspect_ratio_range': (0.5, 2.0)},
-        'Monitor': {'height_range': (0.2, 0.6), 'volume_range': (0.01, 0.3), 'aspect_ratio_range': (1.5, 5.0)},
-        'Projection_Screen': {'height_range': (0.8, 2.5), 'volume_range': (0.3, 10.0), 'aspect_ratio_range': (1.5, 10.0)},
-        'Projector': {'height_range': (0.1, 0.5), 'volume_range': (0.01, 0.1), 'aspect_ratio_range': (0.5, 2.0)},
-        'TV': {'height_range': (0.3, 1.0), 'volume_range': (0.05, 0.8), 'aspect_ratio_range': (1.5, 5.0)},
-        'Computer': {'height_range': (0.2, 0.7), 'volume_range': (0.01, 0.3), 'aspect_ratio_range': (0.5, 2.0)}
-    }
+    # Tables: ~24" x 24-60" x 29-30" (0.61m x 0.61-1.52m x 0.74-0.76m)
+    TABLE_WIDTH_MIN, TABLE_WIDTH_MAX = 0.5, 1.7
+    TABLE_LENGTH_MIN, TABLE_LENGTH_MAX = 0.5, 1.7
+    TABLE_HEIGHT_MIN, TABLE_HEIGHT_MAX = 0.6, 0.9
+    
+    # Monitors: ~22" x <1" x 12" (0.56m x 0.025m x 0.3m)
+    MONITOR_WIDTH_MIN, MONITOR_WIDTH_MAX = 0.4, 0.7
+    MONITOR_DEPTH_MIN, MONITOR_DEPTH_MAX = 0.01, 0.15
+    MONITOR_HEIGHT_MIN, MONITOR_HEIGHT_MAX = 0.2, 0.5
+    
+    # Screens: ~8' x thin x 4'5" (2.44m x thin x 1.35m)
+    SCREEN_WIDTH_MIN, SCREEN_WIDTH_MAX = 1.8, 3.0
+    SCREEN_DEPTH_MIN, SCREEN_DEPTH_MAX = 0.01, 0.2
+    SCREEN_HEIGHT_MIN, SCREEN_HEIGHT_MAX = 1.0, 1.8
+    
+    # Projectors: ~17" x 12" x 5" (0.43m x 0.3m x 0.13m)
+    PROJECTOR_WIDTH_MIN, PROJECTOR_WIDTH_MAX = 0.3, 0.6
+    PROJECTOR_LENGTH_MIN, PROJECTOR_LENGTH_MAX = 0.2, 0.4
+    PROJECTOR_HEIGHT_MIN, PROJECTOR_HEIGHT_MAX = 0.1, 0.25
+    
+    # TV: assumption based on typical TV sizes
+    TV_WIDTH_MIN, TV_WIDTH_MAX = 0.8, 1.8
+    TV_DEPTH_MIN, TV_DEPTH_MAX = 0.05, 0.2
+    TV_HEIGHT_MIN, TV_HEIGHT_MAX = 0.5, 1.2
+    
+    # Computer: rough estimate for desktop computers
+    COMPUTER_WIDTH_MIN, COMPUTER_WIDTH_MAX = 0.15, 0.5
+    COMPUTER_LENGTH_MIN, COMPUTER_LENGTH_MAX = 0.3, 0.6
+    COMPUTER_HEIGHT_MIN, COMPUTER_HEIGHT_MAX = 0.3, 0.6
+    
+    # Room dimensions (to filter out oversized objects)
+    # ~30' x 35' x 11' (9.1m x 10.7m x 3.35m)
+    MAX_OBJECT_DIMENSION = 3.0  # No single dimension should exceed 3 meters for an object
+    MAX_OBJECT_VOLUME = 5.0     # No object volume should exceed 5 cubic meters
+    
+    results = []
     
     for segment in tqdm(segments, desc="Classifying"):
         # Get segment properties
-        points = np.asarray(segment.points)
+        bbox = segment.get_axis_aligned_bounding_box()
+        min_bound = bbox.min_bound
+        max_bound = bbox.max_bound
         
-        # Get oriented bounding box
-        obb = segment.get_oriented_bounding_box()
-        dimensions = obb.extent
+        # Calculate dimensions
+        width = max_bound[0] - min_bound[0]   # X-axis
+        length = max_bound[1] - min_bound[1]  # Y-axis
+        height = max_bound[2] - min_bound[2]  # Z-axis
         
-        # Calculate geometric features
-        height = dimensions[2]  # Assuming Z is up
-        volume = np.prod(dimensions)
-        aspect_ratio = max(dimensions[0], dimensions[1]) / (min(dimensions[0], dimensions[1]) + 1e-6)
+        # Sort dimensions to handle orientation-independent classification
+        dims = sorted([width, length], reverse=True)
+        largest_dim, second_dim = dims[0], dims[1]
         
-        # Find the best matching class
-        best_class = 'Misc'
-        best_score = 0.0
+        # Calculate volume and aspect ratios
+        volume = width * length * height
+        flatness_ratio = height / (largest_dim + 1e-6)  # How flat is it? (height/width)
+        elongation_ratio = largest_dim / (second_dim + 1e-6)  # How elongated? (length/width)
         
-        for class_name, props in class_properties.items():
-            # Calculate match score based on how well the segment matches the expected properties
-            height_match = 1.0 if props['height_range'][0] <= height <= props['height_range'][1] else 0.0
-            volume_match = 1.0 if props['volume_range'][0] <= volume <= props['volume_range'][1] else 0.0
-            ar_match = 1.0 if props['aspect_ratio_range'][0] <= aspect_ratio <= props['aspect_ratio_range'][1] else 0.0
+        # Skip objects that are too large (likely walls/floors/ceilings)
+        if largest_dim > MAX_OBJECT_DIMENSION or volume > MAX_OBJECT_VOLUME:
+            continue
+        
+        # Skip objects that are too small (likely noise)
+        if volume < 0.01:  # 10 cubic cm
+            continue
+        
+        # Initialize class and confidence
+        class_name = "Misc"
+        confidence = 0.5
+        
+        # Table classification
+        if (TABLE_WIDTH_MIN <= largest_dim <= TABLE_WIDTH_MAX and 
+            TABLE_LENGTH_MIN <= second_dim <= TABLE_LENGTH_MAX and 
+            TABLE_HEIGHT_MIN <= height <= TABLE_HEIGHT_MAX and
+            flatness_ratio < 0.8):  # Tables are relatively flat
+            class_name = "Table"
+            confidence = 0.7
+        
+        # Chair classification
+        elif (CHAIR_WIDTH_MIN <= largest_dim <= CHAIR_WIDTH_MAX and 
+              CHAIR_LENGTH_MIN <= second_dim <= CHAIR_LENGTH_MAX and 
+              CHAIR_HEIGHT_MIN <= height <= CHAIR_HEIGHT_MAX):
+            class_name = "Chair"
+            confidence = 0.7
+        
+        # Monitor classification
+        elif (MONITOR_WIDTH_MIN <= largest_dim <= MONITOR_WIDTH_MAX and 
+              MONITOR_DEPTH_MIN <= second_dim <= MONITOR_DEPTH_MAX and 
+              MONITOR_HEIGHT_MIN <= height <= MONITOR_HEIGHT_MAX and
+              flatness_ratio > 1.0):  # Monitors are taller than wide
+            class_name = "Monitor"
+            confidence = 0.7
+        
+        # Projection screen classification
+        elif (SCREEN_WIDTH_MIN <= largest_dim <= SCREEN_WIDTH_MAX and 
+              SCREEN_DEPTH_MIN <= second_dim <= SCREEN_DEPTH_MAX and 
+              SCREEN_HEIGHT_MIN <= height <= SCREEN_HEIGHT_MAX and
+              flatness_ratio > 0.5 and elongation_ratio > 2.0):  # Screens are wide and flat
+            class_name = "Projection_Screen"
+            confidence = 0.8
+        
+        # Projector classification (typically mounted on ceiling)
+        elif (PROJECTOR_WIDTH_MIN <= largest_dim <= PROJECTOR_WIDTH_MAX and 
+              PROJECTOR_LENGTH_MIN <= second_dim <= PROJECTOR_LENGTH_MAX and 
+              PROJECTOR_HEIGHT_MIN <= height <= PROJECTOR_HEIGHT_MAX):
+            class_name = "Projector"
+            confidence = 0.7
+        
+        # TV classification
+        elif (TV_WIDTH_MIN <= largest_dim <= TV_WIDTH_MAX and 
+              TV_DEPTH_MIN <= second_dim <= TV_DEPTH_MAX and 
+              TV_HEIGHT_MIN <= height <= TV_HEIGHT_MAX and
+              flatness_ratio > 0.3 and elongation_ratio > 2.0):  # TVs are wide and relatively flat
+            class_name = "TV"
+            confidence = 0.7
+        
+        # Computer classification
+        elif (COMPUTER_WIDTH_MIN <= largest_dim <= COMPUTER_WIDTH_MAX and 
+              COMPUTER_LENGTH_MIN <= second_dim <= COMPUTER_LENGTH_MAX and 
+              COMPUTER_HEIGHT_MIN <= height <= COMPUTER_HEIGHT_MAX):
+            class_name = "Computer"
+            confidence = 0.6
             
-            score = (height_match + volume_match + ar_match) / 3.0
-            
-            if score > best_score:
-                best_score = score
-                best_class = class_name
+        # Calculate center position (for debugging)
+        center = (min_bound + max_bound) / 2
         
-        results.append((segment, best_class, best_score))
+        # Print debug info for larger objects
+        if volume > 1.0:
+            print(f"Large object: dims={width:.2f}x{length:.2f}x{height:.2f}m, "
+                  f"vol={volume:.2f}m³, center=({center[0]:.2f}, {center[1]:.2f}, {center[2]:.2f}), "
+                  f"class={class_name}")
+        
+        results.append((segment, class_name, confidence))
+    
+    # Count objects by class
+    class_counts = {}
+    for _, class_name, _ in results:
+        if class_name not in class_counts:
+            class_counts[class_name] = 0
+        class_counts[class_name] += 1
+    
+    print("Object counts by class:")
+    for class_name, count in class_counts.items():
+        print(f"  {class_name}: {count}")
     
     return results
 
@@ -195,7 +344,10 @@ def visualize_results(pcd, classified_segments, output_path=None):
             continue
             
         # Create a copy of the segment for visualization
-        segment_vis = o3d.geometry.PointCloud(segment)
+        segment_vis = o3d.geometry.PointCloud()
+        segment_vis.points = o3d.utility.Vector3dVector(np.asarray(segment.points))
+        if segment.has_colors():
+            segment_vis.colors = o3d.utility.Vector3dVector(np.asarray(segment.colors))
         
         # Color based on class
         if class_name in colors:
@@ -216,25 +368,25 @@ def visualize_results(pcd, classified_segments, output_path=None):
     opt.background_color = np.array([0.1, 0.1, 0.1])  # Dark background
     opt.point_size = 2.0
     
-    # Run the visualizer
-    vis.run()
-    
-    # Capture and save an image if requested
+    # Capture image if needed
     if output_path:
+        # Update the renderer before capturing
+        vis.poll_events()
+        vis.update_renderer()
         vis.capture_screen_image(output_path)
         print(f"Visualization saved to {output_path}")
     
+    # Run the visualizer
+    vis.run()
     vis.destroy_window()
 
 def main():
     parser = argparse.ArgumentParser(description="CIE Point Cloud Object Detection")
     parser.add_argument('--input_dir', type=str, required=True, help='Directory containing CIE PCD files')
     parser.add_argument('--output_dir', type=str, default='./output', help='Base output directory')
-    parser.add_argument('--cfg_file', type=str, help='Config file for OpenPCDet (if available)')
-    parser.add_argument('--ckpt', type=str, help='Checkpoint file for OpenPCDet (if available)')
-    parser.add_argument('--eps', type=float, default=0.15, help='DBSCAN epsilon parameter')
-    parser.add_argument('--min_points', type=int, default=100, help='Minimum points for a cluster')
-    parser.add_argument('--voxel_size', type=float, default=0.05, help='Voxel size for downsampling')
+    parser.add_argument('--eps', type=float, default=0.1, help='DBSCAN epsilon parameter')
+    parser.add_argument('--min_points', type=int, default=50, help='Minimum points for a cluster')
+    parser.add_argument('--voxel_size', type=float, default=0.04, help='Voxel size for downsampling')
     args = parser.parse_args()
     
     # Create base output directory
@@ -257,81 +409,57 @@ def main():
     processed_pcd_path = os.path.join(standalone_output_dir, 'CIE_processed.pcd')
     o3d.io.write_point_cloud(processed_pcd_path, processed_pcd)
     
-    # Use OpenPCDet if available and config is provided
-    if OPENPCDET_AVAILABLE and args.cfg_file and args.ckpt:
-        print("Using OpenPCDet for object detection...")
-        # Extract model name from cfg_file for folder organization
-        cfg_basename = os.path.basename(args.cfg_file)
-        model_name = os.path.splitext(cfg_basename)[0]
+    # Step 3: Segment objects
+    segments = segment_objects(processed_pcd, eps=args.eps, min_points=args.min_points)
+    
+    # Step 4: Classify objects
+    classified_segments = classify_objects(segments)
+    
+    # Step 5: Visualize results
+    vis_output_path = os.path.join(standalone_output_dir, 'detection_results.png')
+    visualize_results(processed_pcd, classified_segments, vis_output_path)
+    
+    # Step 6: Write results to a file
+    results_file = os.path.join(standalone_output_dir, 'detection_results.txt')
+    with open(results_file, 'w') as f:
+        f.write("CIE Object Detection Results (Standalone Method)\n")
+        f.write("==============================================\n\n")
         
-        # Create model-specific output directory
-        openpcdet_output_dir = os.path.join(args.output_dir, f"openpcdet_{model_name}")
-        os.makedirs(openpcdet_output_dir, exist_ok=True)
+        # Group by class
+        class_counts = {}
+        for _, class_name, confidence in classified_segments:
+            if confidence >= 0.3:  # Only count high confidence detections
+                if class_name not in class_counts:
+                    class_counts[class_name] = 0
+                class_counts[class_name] += 1
         
-        # Load config
-        cfg_from_yaml_file(args.cfg_file, cfg)
+        f.write("Object counts:\n")
+        for class_name, count in class_counts.items():
+            f.write(f"{class_name}: {count}\n")
         
-        # Build model
-        model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=None)
-        
-        # Load checkpoint
-        model.load_params_from_file(filename=args.ckpt, logger=common_utils.create_logger())
-        model.cuda()
-        model.eval()
-        
-        # Process point cloud for OpenPCDet
-        # Implementation depends on specific OpenPCDet requirements
-        # This is a placeholder for the actual implementation
-        print(f"OpenPCDet detection results will be saved to {openpcdet_output_dir}")
-        
-    else:
-        print("Using standalone object detection pipeline...")
-        # Step 3: Segment objects
-        segments = segment_objects(processed_pcd, eps=args.eps, min_points=args.min_points)
-        
-        # Step 4: Classify objects
-        classified_segments = classify_objects(segments)
-        
-        # Step 5: Visualize results
-        vis_output_path = os.path.join(standalone_output_dir, 'detection_results.png')
-        visualize_results(processed_pcd, classified_segments, vis_output_path)
-        
-        # Write results to a file
-        results_file = os.path.join(standalone_output_dir, 'detection_results.txt')
-        with open(results_file, 'w') as f:
-            f.write("CIE Object Detection Results (Standalone Method)\n")
-            f.write("==============================================\n\n")
-            
-            # Group by class
-            class_counts = {}
-            for _, class_name, confidence in classified_segments:
-                if confidence >= 0.3:  # Only count high confidence detections
-                    if class_name not in class_counts:
-                        class_counts[class_name] = 0
-                    class_counts[class_name] += 1
-            
-            f.write("Object counts:\n")
-            for class_name, count in class_counts.items():
-                f.write(f"{class_name}: {count}\n")
-            
-            f.write("\nDetailed results:\n")
-            for i, (segment, class_name, confidence) in enumerate(classified_segments):
-                if confidence >= 0.3:  # Only include high confidence detections
-                    bbox = segment.get_oriented_bounding_box()
-                    center = bbox.center
-                    dimensions = bbox.extent
-                    
-                    f.write(f"Object {i+1}:\n")
-                    f.write(f"  Class: {class_name}\n")
-                    f.write(f"  Confidence: {confidence:.2f}\n")
-                    f.write(f"  Center: ({center[0]:.2f}, {center[1]:.2f}, {center[2]:.2f})\n")
-                    f.write(f"  Dimensions: {dimensions[0]:.2f} x {dimensions[1]:.2f} x {dimensions[2]:.2f}\n")
-                    f.write(f"  Points: {len(segment.points)}\n\n")
-        
-        print(f"Results written to {results_file}")
-        print(f"All standalone detection results saved to {standalone_output_dir}")
+        f.write("\nDetailed results:\n")
+        for i, (segment, class_name, confidence) in enumerate(classified_segments):
+            if confidence >= 0.3:  # Only include high confidence detections
+                bbox = segment.get_axis_aligned_bounding_box()
+                center = bbox.get_center()
+                min_bound = bbox.min_bound
+                max_bound = bbox.max_bound
+                dimensions = max_bound - min_bound
+                
+                f.write(f"Object {i+1}:\n")
+                f.write(f"  Class: {class_name}\n")
+                f.write(f"  Confidence: {confidence:.2f}\n")
+                f.write(f"  Center: ({center[0]:.2f}, {center[1]:.2f}, {center[2]:.2f})\n")
+                f.write(f"  Dimensions: {dimensions[0]:.2f} x {dimensions[1]:.2f} x {dimensions[2]:.2f}\n")
+                f.write(f"  Points: {len(segment.points)}\n\n")
+    
+    print(f"Results written to {results_file}")
+    print(f"All standalone detection results saved to {standalone_output_dir}")
     
     print("Object detection completed successfully!")
 
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    elapsed_time = time.time() - start_time
+    print(f"Total execution time: {elapsed_time:.2f} seconds")
