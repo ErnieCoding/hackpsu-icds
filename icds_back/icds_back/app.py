@@ -2,6 +2,14 @@ import open3d as o3d
 import numpy as np
 import plotly.graph_objects as go
 
+def pcd_to_llm_text(pcd_path, max_points=1000):
+    """Convert PCD to LLM-readable text using Open3D"""
+    pcd = o3d.io.read_point_cloud(pcd_path)
+    points = np.asarray(pcd.points)
+    if len(points) > max_points:
+        points = points[np.random.choice(len(points), max_points, replace=False)]
+    return "\n".join([f"{x:.2f},{y:.2f},{z:.2f}" for x, y, z in points])
+
 # Function to load and combine point clouds
 def combine_point_clouds(folder_name, file_count):
     combined = o3d.geometry.PointCloud()
@@ -127,7 +135,7 @@ def main(CIE_data, pcd_or_img, data):
 # all data folder or images should be in the hackpsu-icds directory
 # For images:
 # main(False, False, "your_image.jpg")
-main(True, True, "CIE.pcd")
+# main(True, True, "CIE.pcd")
 """
 TODO: run through vision model to figure out what items there are
 
