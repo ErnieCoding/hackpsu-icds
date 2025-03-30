@@ -1,11 +1,46 @@
 import logo from './logo.svg';
 import './styles/App.css';
 import FileUploader from './fileUploader';
+import func from './displayData';
 import 'bootstrap/dist/css/bootstrap.min.css';
+
 
 function App() {
   return (
-    <FileUploader />
+    <body>
+    
+    <div class="container-fluid p-5 bg-primary text-white text-center">
+      <h1>My First Bootstrap Page</h1>
+      <p>Upload a .pcd / .png / .jpg / .jpeg file to see what objects can be identified</p> 
+    </div>
+      
+    <div class="container mt-5">
+      <div class="row">
+        <div class="col-sm-4">
+          <h3>Column 1</h3>
+          <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit...</p>
+          <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris...</p>
+        </div>
+        <div class="col-sm-4">
+          <h3>Column 2</h3>
+          <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit...</p>
+          <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris...</p>
+        </div>
+        <div class="col-sm-4">
+          <h3>Column 3</h3>        
+          <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit...</p>
+          <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris...</p>
+        </div>
+      </div>
+    <div class="container mt-5 text-center"> 
+      <div class="col-sm-12">
+      <FileUploader />
+      </div>
+    </div>
+    </div>
+    
+    </body>
+    
   );
 }
 
