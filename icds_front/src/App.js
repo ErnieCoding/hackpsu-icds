@@ -3,7 +3,7 @@ import './styles/App.css';
 import FileUploader from './fileUploader';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Container, Row, Col, Card, ListGroup, Badge } from 'react-bootstrap';
-import DisplayData from './displayData'; // Import the visualization component
+import DisplayData from './displayData';
 
 function App() {
   // Existing states for processing and object detection
@@ -20,7 +20,7 @@ function App() {
     if (data instanceof File) {
       sendFileToBackend(data);
     } else {
-      console.warn("❌ Only file uploads are supported now. Skipping non-file input.");
+      console.warn("Only file uploads are supported now. Skipping non-file input.");
     }
   };
 
@@ -45,20 +45,18 @@ function App() {
       const data = await response.json();
   
       if (data.status === "success") {
-        // 🎯 Store point cloud and detected objects
         const processedData = processResponseData(data);
         setPointCloudData(processedData);
   
-        const objects = data.objects || detectObjects(processedData.points);
+        const objects = data.objects;
         setIdentifiedObjects(objects);
         setSelectedObject(objects.length > 0 ? objects[0] : null);
   
-        // ✅ Save the backend-generated UUID filename
         if (data.file_id) {
-          console.log("✅ Uploaded and saved as:", data.file_id);
-          setFileId(data.file_id); // Used for visualization
+          console.log("Uploaded and saved as:", data.file_id);
+          setFileId(data.file_id);
         } else {
-          console.warn("⚠️ Backend did not return a file_id.");
+          console.warn("Backend did not return a file_id.");
         }
   
       } else {
@@ -66,13 +64,13 @@ function App() {
       }
     } catch (err) {
       setError(`Failed to process point cloud: ${err.message}`);
-      console.error("❌ Upload error:", err);
+      console.error("Upload error:", err);
     } finally {
       setIsLoading(false);
     }
   };
   
-
+  // LEGACY
   // Send a file path via JSON (for testing if the file already exists on the server)
   // const sendPathToBackend = async (filePath) => {
   //   setIsLoading(true);
@@ -130,46 +128,6 @@ function App() {
         pointCount: points.length,
       }
     };
-  };
-
-  // Fallback mock object detection (if needed)
-  const detectObjects = (pointData) => {
-    const mockObjects = [
-      {
-        id: 1,
-        type: 'chair',
-        confidence: 0.92,
-        bounds: {
-          x: { min: 1.2, max: 2.5 },
-          y: { min: 0.8, max: 1.9 },
-          z: { min: 0.1, max: 0.8 }
-        },
-        pointCount: 1245
-      },
-      {
-        id: 2,
-        type: 'table',
-        confidence: 0.87,
-        bounds: {
-          x: { min: 3.0, max: 5.2 },
-          y: { min: 2.1, max: 4.0 },
-          z: { min: 0.7, max: 0.8 }
-        },
-        pointCount: 3560
-      },
-      {
-        id: 3,
-        type: 'human',
-        confidence: 0.78,
-        bounds: {
-          x: { min: 6.1, max: 7.0 },
-          y: { min: 1.5, max: 2.3 },
-          z: { min: 0.0, max: 1.8 }
-        },
-        pointCount: 2890
-      }
-    ];
-    return mockObjects.filter(obj => obj.confidence > 0.75);
   };
 
   // Handler for selecting an object from the list.

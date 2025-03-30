@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { Card } from 'react-bootstrap';
 import Stack from 'react-bootstrap/Stack';
 import Plot from 'react-plotly.js';
+import './styles/App.css';
 
 const PointCloudVisualization = ({ fileId }) => {
   const [pointCloudData, setPointCloudData] = useState(null);
@@ -77,12 +79,23 @@ const PointCloudVisualization = ({ fileId }) => {
 
 function DisplayData({ fileId }) {
   useEffect(() => {
-    console.log("📁 Visualizing file ID:", fileId);
+    console.log("Visualizing file ID:", fileId);
   }, [fileId]);
 
   return (
-    <div className="container">
+    <Card className="card text-center">
+      <Card.Header className='card-header'>
       <h2>Point Cloud Visualization</h2>
+      <div className='dropdown'>
+        <button class="btn btn-secondary dropdown-toggle" type="button" id="dropdownMenu2" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+          Plot Options
+        </button>
+        <div className='dropdown-menu' aria-labelledby='dropdownMenu2'>
+          <a className='dropdown-item' href='#'>No Object Plot</a>
+          <a className='dropdown-item' href='#'>Object Detection Plot</a>
+        </div>
+      </div>
+      </Card.Header>
       <Stack direction="horizontal" gap={3} className="mb-3">
         <div className="p-2">Control Panel</div>
         <div className="p-2 ms-auto">Options</div>
@@ -92,7 +105,7 @@ function DisplayData({ fileId }) {
       <div className="visualization-container" style={{ height: "600px" }}>
         <PointCloudVisualization fileId={fileId} />
       </div>
-    </div>
+    </Card>
   );
 }
 
