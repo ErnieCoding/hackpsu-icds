@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 import json
-from process_visual import main, combine_point_clouds
+#import process_visual
 import numpy as np
 import open3d as o3d
 
