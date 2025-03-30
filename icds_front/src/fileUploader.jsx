@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import axios from "axios";
-import './styles/fileuploader.css';
 
 
 function FileUploader(){
@@ -40,15 +39,26 @@ function FileUploader(){
         }
     };
 
-    return (
-        <div className="UploadSection">
-            <h1>File Upload</h1>
-            <input type="file" onChange={handleFileChange}/>
-            <button>Process File</button>
-            {uploadStatus && <p>{uploadStatus}</p>}
-        </div>
- 
-    );
+  return (
+	  <div>
+	  <div className = "Title">
+	  <p class="text-center">
+	  <h1> ICDS Lidar Visualization </h1>
+	  </p>
+	  </div>
+
+
+	  <div className="UploadSection">
+	  <p class = "text-center">
+	  <h2>File Upload</h2>
+	  <input type="file" onChange={handleFileChange} />
+	  <button>Process File</button>
+	  {uploadStatus && <p>{uploadStatus}</p>}
+	  </p>
+	  </div>
+	  </div>
+);
+  
 }
 
 export default FileUploader;
