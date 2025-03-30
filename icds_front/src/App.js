@@ -3,114 +3,137 @@ import './styles/App.css';
 import FileUploader from './fileUploader';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Container, Row, Col, Card, ListGroup, Badge } from 'react-bootstrap';
+import DisplayData from './displayData'; // Import the visualization component
 
 function App() {
+  // Existing states for processing and object detection
   const [pointCloudData, setPointCloudData] = useState(null);
   const [identifiedObjects, setIdentifiedObjects] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedObject, setSelectedObject] = useState(null);
+  // New state to store the file identifier (or file path) for visualization
+  const [fileId, setFileId] = useState(null);
 
-  // Function to send point cloud data to Django backend
-  const sendToBackend = async (filePath) => {
+  // Called when FileUploader returns a File or file path string.
+  const handleDataReceived = (data) => {
+    if (data instanceof File) {
+      sendFileToBackend(data);
+    } else {
+      console.warn("❌ Only file uploads are supported now. Skipping non-file input.");
+    }
+  };
+
+  // Send a file using FormData
+  const sendFileToBackend = async (file) => {
     setIsLoading(true);
-    
+    setError(null);
+  
+    const formData = new FormData();
+    formData.append("file", file);
+  
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          is_cie_data: false,
-          is_pcd: true,
-          file_path: filePath
-        }),
+      const response = await fetch("http://127.0.0.1:8000/api/process-point-cloud/", {
+        method: "POST",
+        body: formData,
       });
-      
+  
       if (!response.ok) {
         throw new Error(`Server responded with ${response.status}`);
       }
-      
+  
       const data = await response.json();
-      
-      if (data.status === 'success') {
-        // Process the response data
+  
+      if (data.status === "success") {
+        // 🎯 Store point cloud and detected objects
         const processedData = processResponseData(data);
         setPointCloudData(processedData);
-        
-        // Detect objects in the point cloud
-        const objects = detectObjects(processedData.points);
+  
+        const objects = data.objects || detectObjects(processedData.points);
         setIdentifiedObjects(objects);
         setSelectedObject(objects.length > 0 ? objects[0] : null);
-        
-        setError(null);
+  
+        // ✅ Save the backend-generated UUID filename
+        if (data.file_id) {
+          console.log("✅ Uploaded and saved as:", data.file_id);
+          setFileId(data.file_id); // Used for visualization
+        } else {
+          console.warn("⚠️ Backend did not return a file_id.");
+        }
+  
       } else {
-        throw new Error(data.message || 'Unknown error occurred');
+        throw new Error(data.message || "Unknown error from backend");
       }
     } catch (err) {
-      setError(`Failed to process point cloud data: ${err.message}`);
-      console.error(err);
+      setError(`Failed to process point cloud: ${err.message}`);
+      console.error("❌ Upload error:", err);
     } finally {
       setIsLoading(false);
     }
   };
+  
 
-  // Process the response data from the backend
+  // Send a file path via JSON (for testing if the file already exists on the server)
+  // const sendPathToBackend = async (filePath) => {
+  //   setIsLoading(true);
+  //   try {
+  //     console.log("🧪 Sending path to backend:", filePath);
+  //     const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify({
+  //         file_id: filePath
+  //       }),
+  //     });
+
+  //     if (!response.ok) {
+  //       throw new Error(`Server responded with ${response.status}`);
+  //     }
+
+  //     const data = await response.json();
+  //     if (data.status === 'success') {
+  //       const processedData = processResponseData(data);
+  //       setPointCloudData(processedData);
+  //       const objects = data.objects || detectObjects(processedData.points);
+  //       setIdentifiedObjects(objects);
+  //       setSelectedObject(objects.length > 0 ? objects[0] : null);
+  //       setError(null);
+  //       // Set fileId so the visualization component can load the data.
+  //       setFileId(filePath);
+  //     } else {
+  //       throw new Error(data.message || 'Unknown error occurred');
+  //     }
+  //   } catch (err) {
+  //     setError(`Failed to process point cloud data: ${err.message}`);
+  //     console.error(err);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
+
+  // Transform the backend response so each point becomes an object with x,y,z and color values.
   const processResponseData = (responseData) => {
     const { points, colors } = responseData;
-    
-    // Convert points array (which contains [x,y,z] arrays) into array of point objects
-    const pointObjects = points.map((point, index) => {
-      return {
-        x: point[0],
-        y: point[1],
-        z: point[2],
-        r: colors ? Math.floor(colors[index][0] * 255) : Math.floor(Math.random() * 255),
-        g: colors ? Math.floor(colors[index][1] * 255) : Math.floor(Math.random() * 255),
-        b: colors ? Math.floor(colors[index][2] * 255) : Math.floor(Math.random() * 255)
-      };
-    });
-    
-    // Calculate bounds for the point cloud
-    const bounds = calculateBounds(points);
-    
+    const pointObjects = points.map((point, index) => ({
+      x: point[0],
+      y: point[1],
+      z: point[2],
+      r: colors ? Math.floor(colors[index][0] * 255) : Math.floor(Math.random() * 255),
+      g: colors ? Math.floor(colors[index][1] * 255) : Math.floor(Math.random() * 255),
+      b: colors ? Math.floor(colors[index][2] * 255) : Math.floor(Math.random() * 255)
+    }));
     return {
       points: pointObjects,
       metadata: {
         pointCount: points.length,
-        bounds: bounds
       }
     };
   };
 
-  // Calculate bounds for the point cloud
-  const calculateBounds = (points) => {
-    if (!points || points.length === 0) {
-      return { x: { min: 0, max: 0 }, y: { min: 0, max: 0 }, z: { min: 0, max: 0 } };
-    }
-    
-    const bounds = {
-      x: { min: Infinity, max: -Infinity },
-      y: { min: Infinity, max: -Infinity },
-      z: { min: Infinity, max: -Infinity }
-    };
-    
-    points.forEach(point => {
-      bounds.x.min = Math.min(bounds.x.min, point[0]);
-      bounds.x.max = Math.max(bounds.x.max, point[0]);
-      bounds.y.min = Math.min(bounds.y.min, point[1]);
-      bounds.y.max = Math.max(bounds.y.max, point[1]);
-      bounds.z.min = Math.min(bounds.z.min, point[2]);
-      bounds.z.max = Math.max(bounds.z.max, point[2]);
-    });
-    
-    return bounds;
-  };
-
-  // Mock function to simulate object detection
+  // Fallback mock object detection (if needed)
   const detectObjects = (pointData) => {
-    // In a real app, this would come from your ML model/backend
     const mockObjects = [
       {
         id: 1,
@@ -146,59 +169,10 @@ function App() {
         pointCount: 2890
       }
     ];
-    
     return mockObjects.filter(obj => obj.confidence > 0.75);
   };
 
-  const handleDataReceived = (data) => {
-    // If data is a file path string, send it to the backend
-    if (typeof data === 'string') {
-      sendToBackend(data);
-    } else {
-      // For backward compatibility or local testing
-      setIsLoading(true);
-      try {
-        const processedData = processPointCloudData(data);
-        setPointCloudData(processedData);
-        
-        // Detect objects in the point cloud
-        const objects = detectObjects(processedData.points);
-        setIdentifiedObjects(objects);
-        setSelectedObject(objects.length > 0 ? objects[0] : null);
-        
-        setError(null);
-      } catch (err) {
-        setError('Failed to process point cloud data');
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  // Legacy function for local processing
-  const processPointCloudData = (rawData) => {
-    return {
-      points: Array(100).fill(0).map((_, i) => ({
-        x: Math.random() * 10,
-        y: Math.random() * 10,
-        z: Math.random() * 10,
-        r: Math.floor(Math.random() * 255),
-        g: Math.floor(Math.random() * 255),
-        b: Math.floor(Math.random() * 255)
-      })),
-      metadata: {
-        pointCount: 100,
-        bounds: {
-          x: { min: 0, max: 10 },
-          y: { min: 0, max: 10 },
-          z: { min: 0, max: 10 }
-        }
-      }
-    };
-  };
-
-  // Handler for selecting an object from the list
+  // Handler for selecting an object from the list.
   const handleObjectSelect = (object) => {
     setSelectedObject(object);
   };
@@ -285,9 +259,10 @@ function App() {
                             Confidence: {(obj.confidence * 100).toFixed(0)}%
                           </small>
                         </div>
-                        <Badge bg={selectedObject && selectedObject.id === obj.id ? "light" : "success"} 
-                               text={selectedObject && selectedObject.id === obj.id ? "dark" : "white"} 
-                               pill>
+                        <Badge 
+                          bg={selectedObject && selectedObject.id === obj.id ? "light" : "success"} 
+                          text={selectedObject && selectedObject.id === obj.id ? "dark" : "white"} 
+                          pill>
                           {obj.type === 'human' ? 'Person' : obj.type}
                         </Badge>
                       </ListGroup.Item>
@@ -312,7 +287,7 @@ function App() {
               )}
             </Card>
 
-            {/* Object Details Panel (appears when objects are detected) */}
+            {/* Object Details Panel */}
             {selectedObject && (
               <Card className="mt-3 shadow-sm">
                 <Card.Header className="bg-light">
@@ -344,6 +319,11 @@ function App() {
             )}
           </Col>
         </Row>
+
+        {/* Render the DisplayData component for 3D visualization if fileId is available */}
+        {fileId && (
+          <DisplayData fileId={fileId} />
+        )}
       </Container>
     </div>
   );
