@@ -88,7 +88,11 @@ def visualize_detections(pcd_path, result_path):
                 bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
                 bbox.color = color
                 geometries.append(bbox)
-                
+
+        modified_pcd_path = os.path.join(os.path.dirname(pcd_path), "modified_output.pcd")
+        o3d.io.write_point_cloud(modified_pcd_path, pcd_vis)
+        print(f"✅ Saved modified point cloud to: {modified_pcd_path}")
+                                
                 # Optionally add text label
                 # Note: Open3D doesn't directly support text labels, 
                 # but we could create a visualization for this

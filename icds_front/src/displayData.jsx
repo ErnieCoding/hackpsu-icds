@@ -1,61 +1,105 @@
 import React, { useState, useEffect } from 'react';
-import { Card } from 'react-bootstrap';
-import Stack from 'react-bootstrap/Stack';
+import { Card, Dropdown, DropdownButton, Spinner } from 'react-bootstrap';
 import Plot from 'react-plotly.js';
 import './styles/App.css';
 
-const PointCloudVisualization = ({ fileId }) => {
-  const [pointCloudData, setPointCloudData] = useState(null);
+const DisplayData = ({ fileId }) => {
+  const [plotType, setPlotType] = useState("raw");
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!fileId) return;
-  
-    const formData = new FormData();
-    formData.append("file", new File([], fileId)); // dummy file name (you don’t have access to real file)
-  
-    // Instead, make a special endpoint for reading uploaded file by ID:
-    fetch(`http://127.0.0.1:8000/api/view-point-cloud/?file_id=${fileId}`, {
-      method: 'GET'
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
-        if (data.status === 'success') {
-          setPointCloudData(data);
-        } else {
-          throw new Error(data.message || 'Failed to load visualization data');
+    setLoading(true);
+    setError(null);
+
+    const fetchData = async () => {
+      try {
+        const endpoint = plotType === "detection"
+          ? `http://127.0.0.1:8000/api/run-detection/?file_id=${fileId}`
+          : `http://127.0.0.1:8000/api/view-point-cloud/?file_id=${fileId}`;
+    
+        const response = await fetch(endpoint);
+        const result = await response.json();
+    
+        if (result.status !== "success") {
+          throw new Error(result.message || "Failed to fetch data");
         }
-      })
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [fileId]);
+    
+        setData(result);
+    
+        // ✅ Dispatch to App.js (match App.js listener exactly)
+        if (plotType === "detection" && result.boxes && result.class_names && result.scores) {
+          window.dispatchEvent(new CustomEvent("detectionResults", {
+            detail: {
+              boxes: result.boxes,
+              class_names: result.class_names,
+              scores: result.scores
+            }
+          }));
+        }
+      } catch (err) {
+        console.error(err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  if (loading) return <div>Loading visualization...</div>;
-  if (error) return <div className="text-danger">{error}</div>;
-  if (!pointCloudData) return <div>Select a point cloud file to visualize</div>;
+    fetchData();
+  }, [fileId, plotType]);
 
-  const x = pointCloudData.points.map(p => p[0]);
-  const y = pointCloudData.points.map(p => p[1]);
-  const z = pointCloudData.points.map(p => p[2]);
+  const getPlotData = () => {
+    if (!data?.points) return [];
 
-  let markerConfig = { size: 2 };
-  if (pointCloudData.colors) {
-    markerConfig.color = pointCloudData.colors.map(c => `rgb(${c.map(n => Math.floor(n * 255)).join(',')})`);
-  } else {
-    markerConfig.color = 'rgb(0,100,255)';
-  }
+    const x = data.points.map(p => p[0]);
+    const y = data.points.map(p => p[1]);
+    const z = data.points.map(p => p[2]);
 
-  const data = [{
-    type: 'scatter3d',
-    mode: 'markers',
-    x, y, z,
-    marker: markerConfig,
-    hoverinfo: 'none'
-  }];
+    let marker = { size: 2 };
+
+    if (data.colors) {
+      marker.color = data.colors.map(c => `rgb(${c.map(v => Math.floor(v * 255)).join(',')})`);
+    } else {
+      marker.color = 'rgb(0,100,255)';
+    }
+
+    const trace = {
+      type: 'scatter3d',
+      mode: 'markers',
+      x, y, z,
+      marker,
+      hoverinfo: 'none'
+    };
+
+    const traces = [trace];
+
+    // If we are in detection mode, render boxes as well
+    if (plotType === "detection" && data.boxes) {
+      for (let i = 0; i < data.boxes.length; i++) {
+        const box = data.boxes[i];
+        const label = data.class_names?.[data.labels[i] - 1] || `Object ${i + 1}`;
+        const score = data.scores[i]?.toFixed(2);
+
+        const traceBox = {
+          type: 'scatter3d',
+          mode: 'markers+text',
+          x: [box[0]],
+          y: [box[1]],
+          z: [box[2]],
+          marker: { size: 4, color: 'red' },
+          text: [`${label} (${score})`],
+          textposition: 'top center',
+          hoverinfo: 'text',
+        };
+
+        traces.push(traceBox);
+      }
+    }
+
+    return traces;
+  };
 
   const layout = {
     autosize: true,
@@ -71,42 +115,37 @@ const PointCloudVisualization = ({ fileId }) => {
   };
 
   return (
-    <div className="visualization-container">
-      <Plot data={data} layout={layout} style={{ width: '100%', height: '100%' }} useResizeHandler config={{ responsive: true }} />
-    </div>
-  );
-};
-
-function DisplayData({ fileId }) {
-  useEffect(() => {
-    console.log("Visualizing file ID:", fileId);
-  }, [fileId]);
-
-  return (
-    <Card className="card text-center">
-      <Card.Header className='card-header'>
-      <h2>Point Cloud Visualization</h2>
-      <div className='dropdown'>
-        <button class="btn btn-secondary dropdown-toggle" type="button" id="dropdownMenu2" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-          Plot Options
-        </button>
-        <div className='dropdown-menu' aria-labelledby='dropdownMenu2'>
-          <a className='dropdown-item' href='#'>No Object Plot</a>
-          <a className='dropdown-item' href='#'>Object Detection Plot</a>
-        </div>
-      </div>
+    <Card className="mt-4">
+      <Card.Header className="d-flex justify-content-between align-items-center">
+        <h5 className="mb-0">Visualization</h5>
+        <DropdownButton
+          variant="secondary"
+          title="Plot Options"
+          onSelect={(e) => setPlotType(e)}
+        >
+          <Dropdown.Item eventKey="raw">No Object Plot</Dropdown.Item>
+          <Dropdown.Item eventKey="detection">Object Detection Plot</Dropdown.Item>
+        </DropdownButton>
       </Card.Header>
-      <Stack direction="horizontal" gap={3} className="mb-3">
-        <div className="p-2">Control Panel</div>
-        <div className="p-2 ms-auto">Options</div>
-        <div className="vr" />
-        <div className="p-2">View Settings</div>
-      </Stack>
-      <div className="visualization-container" style={{ height: "600px" }}>
-        <PointCloudVisualization fileId={fileId} />
-      </div>
+      <Card.Body style={{ height: 600 }}>
+        {loading ? (
+          <div className="d-flex justify-content-center align-items-center h-100">
+            <Spinner animation="border" />
+          </div>
+        ) : error ? (
+          <div className="text-danger text-center">{error}</div>
+        ) : (
+          <Plot
+            data={getPlotData()}
+            layout={layout}
+            style={{ width: '100%', height: '100%' }}
+            useResizeHandler
+            config={{ responsive: true }}
+          />
+        )}
+      </Card.Body>
     </Card>
   );
-}
+};
 
 export default DisplayData;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './styles/App.css';
 import FileUploader from './fileUploader';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -14,6 +14,37 @@ function App() {
   const [selectedObject, setSelectedObject] = useState(null);
   // New state to store the file identifier (or file path) for visualization
   const [fileId, setFileId] = useState(null);
+  // Listen for detection results dispatched from DisplayData and update object list
+  useEffect(() => {
+    const handleDetectionUpdate = (event) => {
+      const { boxes, class_names, scores } = event.detail;
+
+      const detectedObjects = boxes.map((box, index) => {
+        const x = box[0], y = box[1], z = box[2];
+        const dx = box[3], dy = box[4], dz = box[5];
+        const label = class_names?.[index] || 'unknown';
+        const confidence = scores?.[index] || 0;
+
+        return {
+          id: index,
+          type: label,
+          confidence,
+          bounds: {
+            x: { min: x - dx / 2, max: x + dx / 2 },
+            y: { min: y - dy / 2, max: y + dy / 2 },
+            z: { min: z - dz / 2, max: z + dz / 2 },
+          },
+          pointCount: 0 // optional — could be updated if needed
+        };
+      });
+
+      setIdentifiedObjects(detectedObjects);
+      setSelectedObject(detectedObjects.length > 0 ? detectedObjects[0] : null);
+    };
+
+    window.addEventListener("detectionResults", handleDetectionUpdate);
+    return () => window.removeEventListener("detectionResults", handleDetectionUpdate);
+  }, []);
 
   // Called when FileUploader returns a File or file path string.
   const handleDataReceived = (data) => {
@@ -75,7 +106,7 @@ function App() {
   // const sendPathToBackend = async (filePath) => {
   //   setIsLoading(true);
   //   try {
-  //     console.log("🧪 Sending path to backend:", filePath);
+  //     console.log(" Sending path to backend:", filePath);
   //     const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
   //       method: 'POST',
   //       headers: {
