@@ -134,6 +134,8 @@ def main():
             # Force garbage collection between batches
             gc.collect()
         
+        all_objects = processor.post_process_classifications(all_objects)
+
         # Save detection results
         processor.objects = all_objects
         output_path = os.path.join(args.output_dir, 'standalone_detection', 'detection_results.txt')

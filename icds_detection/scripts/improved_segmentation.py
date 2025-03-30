@@ -19,6 +19,29 @@ class ImprovedPointCloudProcessor:
         self.objects = []
         self.planes = []
         
+    def get_dominant_color(self, colors, n_clusters=3):
+        """Get the dominant color from a set of colors using K-means clustering"""
+        from sklearn.cluster import KMeans
+        
+        # Skip if no colors
+        if len(colors) == 0:
+            return [0, 0, 0]
+        
+        # Use K-means to find dominant colors
+        try:
+            kmeans = KMeans(n_clusters=min(n_clusters, len(colors)))
+            kmeans.fit(colors)
+            
+            # Get the largest cluster
+            unique, counts = np.unique(kmeans.labels_, return_counts=True)
+            dominant_index = unique[np.argmax(counts)]
+            
+            # Return the center of the largest cluster
+            return kmeans.cluster_centers_[dominant_index].tolist()
+        except Exception as e:
+            print(f"Error extracting dominant color: {e}")
+            return np.mean(colors, axis=0).tolist()
+
     def load_point_cloud(self, file_path):
         """Load and return a point cloud from file"""
         pcd = o3d.io.read_point_cloud(file_path)
@@ -311,7 +334,25 @@ class ImprovedPointCloudProcessor:
             
             # Get dimensions
             dimensions = np.ptp(bbox_points, axis=0)  # max - min in each dimension
-            
+       
+            # Extract color info if available
+            if remaining_pcd.has_colors():
+                object_colors = np.asarray(object_pcd.colors)
+                mean_color = np.mean(object_colors, axis=0)
+                std_color = np.std(object_colors, axis=0)  # Make sure this line exists
+                
+                # Add color features to object
+                color_features = {
+                    'mean_color': mean_color.tolist(),
+                    'std_color': std_color.tolist(),  # Make sure this matches the variable name above
+                    'dominant_color': self.get_dominant_color(object_colors)
+                }
+            else:
+                color_features = {
+                        'mean_color' : [0, 0, 0], 
+                        'std_color' : [0, 0, 0],
+                        'dominant_color' : [0, 0, 0],
+                        }
             # Add object with properties
             room_objects.append({
                 'pcd': object_pcd,
@@ -319,7 +360,8 @@ class ImprovedPointCloudProcessor:
                 'dimensions': dimensions,
                 'num_points': len(object_indices),
                 'label': label,
-                'classification': None
+                'classification': None,
+                'color_features' : color_features
             })
         
         return room_objects, planes
@@ -329,33 +371,43 @@ class ImprovedPointCloudProcessor:
         # Print debug info
         print(f"Starting classification of {len(objects)} objects")
         
+        # Define colors
+        class_colors = {
+        'chair': np.array([47, 49, 48]) / 255.0,      # Dark gray/black
+        'table': np.array([215, 178, 119]) / 255.0,   # Light wood/tan
+        'monitor': np.array([27, 36, 51]) / 255.0,    # Dark blue/black
+        'projector': np.array([92, 92, 94]) / 255.0,  # Medium gray
+        'screen': np.array([207, 211, 210]) / 255.0,  # Light gray/white
+        'tv': np.array([0, 163, 251]) / 255.0         # Bright blue
+    }
+
         # Define dimension ranges for each object class (in feet)
         # Using the provided measurements, with some tolerance
         class_dimensions = {
             'chair': {
-                'x': (0.8, 2.5),    # Increase tolerance range
-                'y': (0.8, 2.5),    
-                'z': (2.0, 5.0)     
+                'x': (0.5, 0.7),    # Width of seat (about 20-28 inches)
+                'y': (0.5, 0.7),    # Depth of seat (about 20-28 inches)
+                'z': (0.7, 0.9)     # Height to top of back (about 28-36 inches)
             },
             'table': {
-                'x': (1.5, 6.0),    # Increase tolerance range
-                'y': (1.5, 6.0),    
-                'z': (2.0, 5.0)     
+                'x': (1.2, 7.0),    # Increase tolerance range
+                'y': (1.2, 7.0),    
+                'z': (1.5, 4.5)     
             },
             'monitor': {
-                'x': (0.8, 2.5),    # Increase tolerance range
+                'x': (0.5, 2.5),    # Increase tolerance range
                 'y': (0.1, 1.0),    
                 'z': (1.0, 2.5)     
             },
             'screen': {
-                'x': (5.0, 10.0),   # Increase tolerance range
-                'y': (0.1, 1.0),    
-                'z': (3.0, 6.0)     
+                'x': (4.0, 10.0),   # Increase tolerance range
+                'y': (0.1, 2.0),    
+                'z': (2.5, 7.0)     
             },
             'projector': {
-                'x': (0.8, 2.0),    # Increase tolerance range
-                'y': (0.5, 1.5),    
-                'z': (0.2, 1.0)     
+                'x': (0.5, 2.0),    # Increase tolerance range
+                'y': (0.1, 2.0),    
+                'z': (2.5, 1.0)     
             }
         }
         
@@ -425,8 +477,160 @@ class ImprovedPointCloudProcessor:
             print(f"Classified as {classification} with confidence {confidence:.2f}")
             
         print(f"Classified {len(classified_objects)} objects")
+        # After dimension matching, check color for confirmation or correction
+        if 'color_features' in obj and remaining_pcd.has_colors():
+            obj_color = np.array(obj['color_features']['mean_color'])
+            
+            # Find closest color match
+            best_color_match = None
+            best_color_distance = float('inf')
+            
+            for class_name, ref_color in class_colors.items():
+                distance = np.linalg.norm(obj_color - ref_color)
+                
+                if distance < best_color_distance:
+                    best_color_distance = distance
+                    best_color_match = class_name
+            
+            # If color match is strong (distance < 0.3) and different from dimension match
+            if best_color_distance < 0.3 and best_color_match != obj['classification']:
+                # If dimensions are also compatible with color-based class
+                if dimensions_somewhat_match(dimensions, class_dimensions[best_color_match]):
+                    print(f"Reclassifying from {obj['classification']} to {best_color_match} based on color")
+                    obj['classification'] = best_color_match
+                    obj['confidence'] = 0.7
+            
+            # If color match confirms dimension match, increase confidence
+            elif best_color_match == obj['classification'] and best_color_distance < 0.3:
+                obj['confidence'] = min(1.0, obj['confidence'] + 0.2)
+                print(f"Color match confirms {obj['classification']}, confidence: {obj['confidence']:.2f}")
         return classified_objects
     
+    def post_process_classifications(self, objects):
+        """Apply post-processing rules to refine classifications"""
+        print(f"Post-processing {len(objects)} classified objects...")
+        
+        # Define function to check if object is in theater area
+        # You'll need to adjust these coordinates based on your specific environment
+        def is_in_theater_area(position):
+            # This is a placeholder - replace with actual theater coordinates
+            # Example: check if position is in a certain region
+            # Return True if in theater area, False otherwise
+            x, y, z = position
+            # Example: theater is in negative x area 
+            # (replace with actual coordinates from your point cloud)
+            return x < -10.0  # Placeholder value
+        
+        # Group objects by proximity
+        groups = []
+        processed = set()
+        
+        for i, obj1 in enumerate(objects):
+            if i in processed:
+                continue
+                
+            # Start a new group
+            group = [i]
+            processed.add(i)
+            
+            # Find nearby objects
+            for j, obj2 in enumerate(objects):
+                if j in processed or i == j:
+                    continue
+                    
+                # Calculate distance between object centers
+                center1 = obj1['bbox'].get_center()
+                center2 = obj2['bbox'].get_center()
+                distance = np.linalg.norm(np.array(center1) - np.array(center2))
+                
+                # If close, add to group
+                if distance < 2.0:  # Objects within 2 units of each other
+                    group.append(j)
+                    processed.add(j)
+            
+            groups.append(group)
+        
+        # Apply group-based rules
+        for group in groups:
+            if len(group) > 1:
+                # Check for table-monitor combinations
+                has_table = any(objects[idx]['classification'] == 'table' for idx in group)
+                unknown_objects = [idx for idx in group if objects[idx]['classification'] == 'unknown']
+                
+                if has_table and unknown_objects:
+                    # Unknown objects on tables might be monitors or small devices
+                    for idx in unknown_objects:
+                        obj = objects[idx]
+                        dimensions = obj['dimensions']
+                        center = obj['bbox'].get_center()
+                        
+                        # Check if object is above a table
+                        table_indices = [i for i in group if objects[i]['classification'] == 'table']
+                        for table_idx in table_indices:
+                            table = objects[table_idx]
+                            table_center = table['bbox'].get_center()
+                            table_dims = table['dimensions']
+                            
+                            # Check if object is above table
+                            if (abs(center[0] - table_center[0]) < table_dims[0]/2 and 
+                                abs(center[1] - table_center[1]) < table_dims[1]/2 and
+                                center[2] > table_center[2] + table_dims[2]/2):
+                                
+                                # Classify based on dimensions
+                                if dimensions[0] > 1.0 and dimensions[2] > 1.0:
+                                    obj['classification'] = 'monitor'
+                                    obj['confidence'] = 0.7
+                                else:
+                                    obj['classification'] = 'small_device'
+                                    obj['confidence'] = 0.6
+        
+        # Check for TVs on walls
+        for obj in objects:
+            if obj['classification'] == 'unknown' or obj['confidence'] < 0.6:
+                # Check if object is near a wall
+                # A simple heuristic: check if one dimension is very small (thin)
+                # and it's positioned with higher z-coordinate (mounted on wall)
+                dimensions = obj['dimensions']
+                center = obj['bbox'].get_center()
+                
+                # If one dimension is small (thin) and the object is elevated
+                if np.min(dimensions) < 0.2 and center[2] > 1.5:
+                    # Check color if available
+                    if 'color_features' in obj:
+                        obj_color = np.array(obj['color_features']['mean_color'])
+                        tv_color = np.array([0, 163, 251]) / 255.0
+                        
+                        if np.linalg.norm(obj_color - tv_color) < 0.3:
+                            obj['classification'] = 'tv'
+                            obj['confidence'] = 0.8
+                            print(f"Classified wall-mounted TV based on position and color")
+        
+        # Check for projection screen in theater
+        theater_objects = [obj for obj in objects if is_in_theater_area(obj['bbox'].get_center())]
+        screen_candidates = []
+
+        for obj in theater_objects:
+            dimensions = obj['dimensions']
+            # Screens are large, flat, and typically mounted high
+            if dimensions[0] > 2.0 and dimensions[1] < 0.5 and dimensions[2] > 2.0:
+                # Check if color matches light gray/white
+                if 'color_features' in obj:
+                    obj_color = np.array(obj['color_features']['mean_color'])
+                    screen_color = np.array([207, 211, 210]) / 255.0
+                    
+                    if np.linalg.norm(obj_color - screen_color) < 0.3:
+                        screen_candidates.append(obj)
+
+        # If candidates found, classify the largest as the projection screen
+        if screen_candidates:
+            largest_screen = max(screen_candidates, key=lambda obj: obj['dimensions'][0] * obj['dimensions'][2])
+            largest_screen['classification'] = 'screen'
+            largest_screen['confidence'] = 0.9
+            print(f"Classified projection screen in theater")
+        
+        print(f"Post-processing complete")
+        return objects
+
     def process_full_pipeline(self, file_path):
         """Run the full pipeline on a point cloud file"""
         # Load point cloud
