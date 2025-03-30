@@ -1,3 +1,7 @@
 venv/
 *.pcd
 *.jpeg
+*.jpg
+*.png
+__pycache__
+icds_detection/data/cie
