@@ -229,7 +229,7 @@ def visualize_results(pcd, classified_segments, output_path=None):
 def main():
     parser = argparse.ArgumentParser(description="CIE Point Cloud Object Detection")
     parser.add_argument('--input_dir', type=str, required=True, help='Directory containing CIE PCD files')
-    parser.add_argument('--output_dir', type=str, default='./output', help='Output directory')
+    parser.add_argument('--output_dir', type=str, default='./output', help='Base output directory')
     parser.add_argument('--cfg_file', type=str, help='Config file for OpenPCDet (if available)')
     parser.add_argument('--ckpt', type=str, help='Checkpoint file for OpenPCDet (if available)')
     parser.add_argument('--eps', type=float, default=0.15, help='DBSCAN epsilon parameter')
@@ -237,8 +237,12 @@ def main():
     parser.add_argument('--voxel_size', type=float, default=0.05, help='Voxel size for downsampling')
     args = parser.parse_args()
     
-    # Create output directory
+    # Create base output directory
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Create standalone output directory
+    standalone_output_dir = os.path.join(args.output_dir, "standalone_detection")
+    os.makedirs(standalone_output_dir, exist_ok=True)
     
     # Step 1: Merge PCD files using the Colab script logic
     merged_pcd_path = os.path.join(args.output_dir, 'CIE.pcd')
@@ -250,12 +254,20 @@ def main():
     
     # Step 2: Preprocess point cloud
     processed_pcd = preprocess_point_cloud(pcd, voxel_size=args.voxel_size)
-    processed_pcd_path = os.path.join(args.output_dir, 'CIE_processed.pcd')
+    processed_pcd_path = os.path.join(standalone_output_dir, 'CIE_processed.pcd')
     o3d.io.write_point_cloud(processed_pcd_path, processed_pcd)
     
     # Use OpenPCDet if available and config is provided
     if OPENPCDET_AVAILABLE and args.cfg_file and args.ckpt:
         print("Using OpenPCDet for object detection...")
+        # Extract model name from cfg_file for folder organization
+        cfg_basename = os.path.basename(args.cfg_file)
+        model_name = os.path.splitext(cfg_basename)[0]
+        
+        # Create model-specific output directory
+        openpcdet_output_dir = os.path.join(args.output_dir, f"openpcdet_{model_name}")
+        os.makedirs(openpcdet_output_dir, exist_ok=True)
+        
         # Load config
         cfg_from_yaml_file(args.cfg_file, cfg)
         
@@ -270,7 +282,7 @@ def main():
         # Process point cloud for OpenPCDet
         # Implementation depends on specific OpenPCDet requirements
         # This is a placeholder for the actual implementation
-        print("OpenPCDet implementation to be completed based on specific requirements")
+        print(f"OpenPCDet detection results will be saved to {openpcdet_output_dir}")
         
     else:
         print("Using standalone object detection pipeline...")
@@ -281,14 +293,14 @@ def main():
         classified_segments = classify_objects(segments)
         
         # Step 5: Visualize results
-        vis_output_path = os.path.join(args.output_dir, 'detection_results.png')
+        vis_output_path = os.path.join(standalone_output_dir, 'detection_results.png')
         visualize_results(processed_pcd, classified_segments, vis_output_path)
         
         # Write results to a file
-        results_file = os.path.join(args.output_dir, 'detection_results.txt')
+        results_file = os.path.join(standalone_output_dir, 'detection_results.txt')
         with open(results_file, 'w') as f:
-            f.write("CIE Object Detection Results\n")
-            f.write("==========================\n\n")
+            f.write("CIE Object Detection Results (Standalone Method)\n")
+            f.write("==============================================\n\n")
             
             # Group by class
             class_counts = {}
@@ -317,6 +329,7 @@ def main():
                     f.write(f"  Points: {len(segment.points)}\n\n")
         
         print(f"Results written to {results_file}")
+        print(f"All standalone detection results saved to {standalone_output_dir}")
     
     print("Object detection completed successfully!")
 
