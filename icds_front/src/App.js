@@ -3,7 +3,7 @@ import './styles/App.css';
 import FileUploader from './fileUploader';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Container, Row, Col, Card, ListGroup, Badge } from 'react-bootstrap';
-import DisplayData from './displayData'; // Import the visualization component
+import DisplayData from './displayData';
 
 function App() {
   // Existing states for processing and object detection
@@ -19,89 +19,97 @@ function App() {
   const handleDataReceived = (data) => {
     if (data instanceof File) {
       sendFileToBackend(data);
-    } else if (typeof data === 'string') {
-      sendPathToBackend(data);
+    } else {
+      console.warn("Only file uploads are supported now. Skipping non-file input.");
     }
   };
 
   // Send a file using FormData
   const sendFileToBackend = async (file) => {
     setIsLoading(true);
+    setError(null);
+  
     const formData = new FormData();
     formData.append("file", file);
-
+  
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
-        method: 'POST',
+      const response = await fetch("http://127.0.0.1:8000/api/process-point-cloud/", {
+        method: "POST",
         body: formData,
       });
-
+  
       if (!response.ok) {
         throw new Error(`Server responded with ${response.status}`);
       }
-
+  
       const data = await response.json();
-      if (data.status === 'success') {
+  
+      if (data.status === "success") {
         const processedData = processResponseData(data);
         setPointCloudData(processedData);
-        // Use objects returned from backend if available, or fallback to a mock function.
-        const objects = data.objects || detectObjects(processedData.points);
+  
+        const objects = data.objects;
         setIdentifiedObjects(objects);
         setSelectedObject(objects.length > 0 ? objects[0] : null);
-        setError(null);
-        // Set the fileId (adjust this as needed based on your backend response)
-        // Here we assume the backend saved the file and you can refer to it by file path.
-        setFileId(data.file_path || "path/to/uploaded/file.pcd");
+  
+        if (data.file_id) {
+          console.log("Uploaded and saved as:", data.file_id);
+          setFileId(data.file_id);
+        } else {
+          console.warn("Backend did not return a file_id.");
+        }
+  
       } else {
-        throw new Error(data.message || 'Unknown error occurred');
+        throw new Error(data.message || "Unknown error from backend");
       }
     } catch (err) {
-      setError(`Failed to process point cloud data: ${err.message}`);
-      console.error(err);
+      setError(`Failed to process point cloud: ${err.message}`);
+      console.error("Upload error:", err);
     } finally {
       setIsLoading(false);
     }
   };
-
+  
+  // LEGACY
   // Send a file path via JSON (for testing if the file already exists on the server)
-  const sendPathToBackend = async (filePath) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          is_pcd: true,
-          file_path: filePath
-        }),
-      });
+  // const sendPathToBackend = async (filePath) => {
+  //   setIsLoading(true);
+  //   try {
+  //     console.log("🧪 Sending path to backend:", filePath);
+  //     const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify({
+  //         file_id: filePath
+  //       }),
+  //     });
 
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
-      }
+  //     if (!response.ok) {
+  //       throw new Error(`Server responded with ${response.status}`);
+  //     }
 
-      const data = await response.json();
-      if (data.status === 'success') {
-        const processedData = processResponseData(data);
-        setPointCloudData(processedData);
-        const objects = data.objects || detectObjects(processedData.points);
-        setIdentifiedObjects(objects);
-        setSelectedObject(objects.length > 0 ? objects[0] : null);
-        setError(null);
-        // Set fileId so the visualization component can load the data.
-        setFileId(filePath);
-      } else {
-        throw new Error(data.message || 'Unknown error occurred');
-      }
-    } catch (err) {
-      setError(`Failed to process point cloud data: ${err.message}`);
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  //     const data = await response.json();
+  //     if (data.status === 'success') {
+  //       const processedData = processResponseData(data);
+  //       setPointCloudData(processedData);
+  //       const objects = data.objects || detectObjects(processedData.points);
+  //       setIdentifiedObjects(objects);
+  //       setSelectedObject(objects.length > 0 ? objects[0] : null);
+  //       setError(null);
+  //       // Set fileId so the visualization component can load the data.
+  //       setFileId(filePath);
+  //     } else {
+  //       throw new Error(data.message || 'Unknown error occurred');
+  //     }
+  //   } catch (err) {
+  //     setError(`Failed to process point cloud data: ${err.message}`);
+  //     console.error(err);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   // Transform the backend response so each point becomes an object with x,y,z and color values.
   const processResponseData = (responseData) => {
@@ -120,46 +128,6 @@ function App() {
         pointCount: points.length,
       }
     };
-  };
-
-  // Fallback mock object detection (if needed)
-  const detectObjects = (pointData) => {
-    const mockObjects = [
-      {
-        id: 1,
-        type: 'chair',
-        confidence: 0.92,
-        bounds: {
-          x: { min: 1.2, max: 2.5 },
-          y: { min: 0.8, max: 1.9 },
-          z: { min: 0.1, max: 0.8 }
-        },
-        pointCount: 1245
-      },
-      {
-        id: 2,
-        type: 'table',
-        confidence: 0.87,
-        bounds: {
-          x: { min: 3.0, max: 5.2 },
-          y: { min: 2.1, max: 4.0 },
-          z: { min: 0.7, max: 0.8 }
-        },
-        pointCount: 3560
-      },
-      {
-        id: 3,
-        type: 'human',
-        confidence: 0.78,
-        bounds: {
-          x: { min: 6.1, max: 7.0 },
-          y: { min: 1.5, max: 2.3 },
-          z: { min: 0.0, max: 1.8 }
-        },
-        pointCount: 2890
-      }
-    ];
-    return mockObjects.filter(obj => obj.confidence > 0.75);
   };
 
   // Handler for selecting an object from the list.

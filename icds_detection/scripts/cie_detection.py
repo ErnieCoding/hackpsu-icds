@@ -1,3 +1,14 @@
+#!/usr/bin/env python
+"""
+Improved CIE Point Cloud Object Detection
+
+This script:
+1. Loads and preprocesses the point cloud data
+2. Segments the point cloud to identify potential objects
+3. Classifies each segment based on geometric features
+4. Visualizes and saves the results
+"""
+
 import os
 import argparse
 import glob
@@ -146,5 +157,9 @@ def main():
         del processor
         gc.collect()
 
+
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    elapsed_time = time.time() - start_time
+    print(f"Total execution time: {elapsed_time:.2f} seconds")
