@@ -19,25 +19,13 @@ const FileUploader = ({ onUploadSuccess }) => {
       setError('Please select a file first');
       return;
     }
-
-    // In a real application, you would upload the file to your server
-    // For this demo, we'll simulate the file being saved on the server
+  
     setUploading(true);
-    
+  
     try {
-      // Normally here you would send the file to the server
-      // For this example, we'll simulate success and return a file path
-      
-      // Mocked file upload functionality
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
-      
-      // Generate a realistic file path that matches the server's expected format
-      const serverPath = `/uploads/${file.name}`;
-      setFilePath(serverPath);
-      
-      // Signal success to the parent component by passing the file path
-      onUploadSuccess(serverPath);
-      
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
+  
+      onUploadSuccess(file); // ✅ Send the real File object to App.js
       setError(null);
     } catch (err) {
       setError(`Upload failed: ${err.message}`);
@@ -88,7 +76,7 @@ const FileUploader = ({ onUploadSuccess }) => {
       
       <hr className="my-4" />
       
-      <Form onSubmit={handleSubmitFilePath}>
+      {/* <Form onSubmit={handleSubmitFilePath}>
         <Form.Group className="mb-3">
           <Form.Label>Or enter file path on server</Form.Label>
           <Form.Control 
@@ -111,7 +99,7 @@ const FileUploader = ({ onUploadSuccess }) => {
         >
           Use Existing File
         </Button>
-      </Form>
+      </Form> */}
     </div>
   );
 };

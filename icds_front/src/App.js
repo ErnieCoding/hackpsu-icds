@@ -19,89 +19,99 @@ function App() {
   const handleDataReceived = (data) => {
     if (data instanceof File) {
       sendFileToBackend(data);
-    } else if (typeof data === 'string') {
-      sendPathToBackend(data);
+    } else {
+      console.warn("❌ Only file uploads are supported now. Skipping non-file input.");
     }
   };
 
   // Send a file using FormData
   const sendFileToBackend = async (file) => {
     setIsLoading(true);
+    setError(null);
+  
     const formData = new FormData();
     formData.append("file", file);
-
+  
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
-        method: 'POST',
+      const response = await fetch("http://127.0.0.1:8000/api/process-point-cloud/", {
+        method: "POST",
         body: formData,
       });
-
+  
       if (!response.ok) {
         throw new Error(`Server responded with ${response.status}`);
       }
-
+  
       const data = await response.json();
-      if (data.status === 'success') {
+  
+      if (data.status === "success") {
+        // 🎯 Store point cloud and detected objects
         const processedData = processResponseData(data);
         setPointCloudData(processedData);
-        // Use objects returned from backend if available, or fallback to a mock function.
+  
         const objects = data.objects || detectObjects(processedData.points);
         setIdentifiedObjects(objects);
         setSelectedObject(objects.length > 0 ? objects[0] : null);
-        setError(null);
-        // Set the fileId (adjust this as needed based on your backend response)
-        // Here we assume the backend saved the file and you can refer to it by file path.
-        setFileId(data.file_path || "path/to/uploaded/file.pcd");
+  
+        // ✅ Save the backend-generated UUID filename
+        if (data.file_id) {
+          console.log("✅ Uploaded and saved as:", data.file_id);
+          setFileId(data.file_id); // Used for visualization
+        } else {
+          console.warn("⚠️ Backend did not return a file_id.");
+        }
+  
       } else {
-        throw new Error(data.message || 'Unknown error occurred');
+        throw new Error(data.message || "Unknown error from backend");
       }
     } catch (err) {
-      setError(`Failed to process point cloud data: ${err.message}`);
-      console.error(err);
+      setError(`Failed to process point cloud: ${err.message}`);
+      console.error("❌ Upload error:", err);
     } finally {
       setIsLoading(false);
     }
   };
+  
 
   // Send a file path via JSON (for testing if the file already exists on the server)
-  const sendPathToBackend = async (filePath) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          is_pcd: true,
-          file_path: filePath
-        }),
-      });
+  // const sendPathToBackend = async (filePath) => {
+  //   setIsLoading(true);
+  //   try {
+  //     console.log("🧪 Sending path to backend:", filePath);
+  //     const response = await fetch('http://127.0.0.1:8000/api/process-point-cloud/', {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify({
+  //         file_id: filePath
+  //       }),
+  //     });
 
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
-      }
+  //     if (!response.ok) {
+  //       throw new Error(`Server responded with ${response.status}`);
+  //     }
 
-      const data = await response.json();
-      if (data.status === 'success') {
-        const processedData = processResponseData(data);
-        setPointCloudData(processedData);
-        const objects = data.objects || detectObjects(processedData.points);
-        setIdentifiedObjects(objects);
-        setSelectedObject(objects.length > 0 ? objects[0] : null);
-        setError(null);
-        // Set fileId so the visualization component can load the data.
-        setFileId(filePath);
-      } else {
-        throw new Error(data.message || 'Unknown error occurred');
-      }
-    } catch (err) {
-      setError(`Failed to process point cloud data: ${err.message}`);
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  //     const data = await response.json();
+  //     if (data.status === 'success') {
+  //       const processedData = processResponseData(data);
+  //       setPointCloudData(processedData);
+  //       const objects = data.objects || detectObjects(processedData.points);
+  //       setIdentifiedObjects(objects);
+  //       setSelectedObject(objects.length > 0 ? objects[0] : null);
+  //       setError(null);
+  //       // Set fileId so the visualization component can load the data.
+  //       setFileId(filePath);
+  //     } else {
+  //       throw new Error(data.message || 'Unknown error occurred');
+  //     }
+  //   } catch (err) {
+  //     setError(`Failed to process point cloud data: ${err.message}`);
+  //     console.error(err);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   // Transform the backend response so each point becomes an object with x,y,z and color values.
   const processResponseData = (responseData) => {
