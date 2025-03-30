@@ -47,6 +47,7 @@ function FileUploader(){
             <button>Process File</button>
             {uploadStatus && <p>{uploadStatus}</p>}
         </div>
+ 
     );
 }
 
