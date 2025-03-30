@@ -1,5 +1,5 @@
-# Space Goggles - CIE Point Cloud Object Detection
-
+# Space Goggles 
+CIE Point Cloud Object Detection
 ## Project Overview
 
 This project implements an automated 3D point cloud object detection system for the Center for Immersive Experiences (CIE) at Penn State. The system analyzes 3D point cloud data of the CIE space to identify and classify objects such as chairs, tables, monitors, projection screens, and other furniture items.
