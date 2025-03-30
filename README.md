@@ -1,4 +1,4 @@
-# CIE Point Cloud Object Detection
+# Space Goggles - CIE Point Cloud Object Detection
 
 ## Project Overview
 
